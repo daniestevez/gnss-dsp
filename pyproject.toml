@@ -1,0 +1,34 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "pyo3"
+features = ["python"]
+
+[project]
+name = "gnss_dsp"
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+]
+requires-python = ">=3.11"
+description = "Digital Signal Processing algorithms for GNSS"
+readme = "README.md"
+maintainers = [
+    {name = "Daniel Estevez", email = "daniel@destevez.net"}
+]
+dependencies = [
+    "numpy>=2",
+    "sigmf>=1.2.10",
+]
+
+[project.optional-dependencies]
+matplotlib = ["matplotlib>=3"]
+
+[project.scripts]
+gnss-acquisition = "gnss_dsp:gnss_acquisition.main"
+gnss-acquisition-simulation = "gnss_dsp:gnss_acquisition.main_simulation"

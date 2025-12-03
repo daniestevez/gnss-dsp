@@ -1,0 +1,6 @@
+/target
+/gnss_dsp/gnss_dsp.abi3.so
+*~
+*.sqlite
+*.nsys-rep
+__pycache__
