@@ -130,9 +130,14 @@ def parse_args(args=None, simulation=False):
         help="Maximum Doppler (Hz) [default=%(default)r]",
     )
     parser.add_argument(
-        "--restrict-caf-peak-lag",
+        "--min-delay",
         type=float,
-        help="Restrict CAF peak lag to one found before the time indicated here (s) [default=%(default)r]",
+        help="Limit delay of the CAF peak search to values greater than this (s) [default is no limit]",
+    )
+    parser.add_argument(
+        "--max-delay",
+        type=float,
+        help="Limit delay of the CAF peak search to values smaller than this (s) [default is no limit]",
     )
     parser.add_argument(
         "--doppler-oversampling",
@@ -218,12 +223,18 @@ def generate_simulated_signal(args):
     return x
 
 
-def extract_metadata(caf, acquisition, sample_offset, *, restrict_lag=None):
-    caf_region = caf
-    if restrict_lag is not None:
-        restrict_samples = round(acquisition.sample_rate() * restrict_lag)
-        caf_region = caf[:, :restrict_samples]
+def extract_metadata(
+    caf, acquisition, sample_offset, *, min_delay=None, max_delay=None
+):
+    start = 0
+    end = caf.shape[1]
+    if min_delay is not None:
+        start = round(acquisition.sample_rate() * min_delay)
+    if max_delay is not None:
+        end = round(acquisition.sample_rate() * max_delay)
+    caf_region = caf[:, start:end]
     (a, b) = np.unravel_index(np.argmax(caf_region), caf_region.shape)
+    b += start
     doppler = acquisition.doppler_axis()[a]
     time = (b + sample_offset) / acquisition.sample_rate()
     caf_mean = np.mean(caf)
@@ -266,7 +277,11 @@ def compute_acquisition(signal, samp_rate, sample_offset, args):
         results = acquisition.acquire(prn_block)
         for caf, prn in zip(results, prn_block):
             meta = extract_metadata(
-                caf, acquisition, sample_offset, restrict_lag=args.restrict_caf_peak_lag
+                caf,
+                acquisition,
+                sample_offset,
+                min_delay=args.min_delay,
+                max_delay=args.max_delay,
             )
             metadata[prn] = meta
             if args.plots_dir is not None:
