@@ -100,6 +100,11 @@ def parse_args(args=None, simulation=False):
         help="Time span to plot in CAF (usec) [default=%(default)r]",
     )
     parser.add_argument(
+        "--caf-time-center",
+        type=float,
+        help="Use a fixed time for the center of the CAF plot (s) [default is time of CAF peak]",
+    )
+    parser.add_argument(
         "--prns",
         type=prns_list,
         default=prns_list("1-32"),
@@ -138,6 +143,16 @@ def parse_args(args=None, simulation=False):
         "--max-delay",
         type=float,
         help="Limit delay of the CAF peak search to values smaller than this (s) [default is no limit]",
+    )
+    parser.add_argument(
+        "--min-snr",
+        type=float,
+        help="Minimum SNR for CAF plot scale [default is auto-scale]",
+    )
+    parser.add_argument(
+        "--max-snr",
+        type=float,
+        help="Maximum SNR for CAF plot scale [default is auto-scale]",
     )
     parser.add_argument(
         "--doppler-oversampling",
@@ -229,9 +244,15 @@ def extract_metadata(
     start = 0
     end = caf.shape[1]
     if min_delay is not None:
+        if max_delay is not None and max_delay < min_delay:
+            raise ValueError(
+                f"max-delay ({max_delay}) must be greater or equal than min-delay ({min_delay})"
+            )
         start = round(acquisition.sample_rate() * min_delay)
     if max_delay is not None:
         end = round(acquisition.sample_rate() * max_delay)
+        # ensure that at least we are sampling one time "column" in caf_region
+        end = max(end, start + 1)
     caf_region = caf[:, start:end]
     (a, b) = np.unravel_index(np.argmax(caf_region), caf_region.shape)
     b += start
@@ -292,6 +313,9 @@ def compute_acquisition(signal, samp_rate, sample_offset, args):
                     acquisition,
                     doppler_span=args.caf_doppler_span,
                     time_span=1e-6 * args.caf_time_span,
+                    time_center=args.caf_time_center,
+                    min_snr=args.min_snr,
+                    max_snr=args.max_snr,
                 )
                 fig.savefig(args.plots_dir / f"CAF_G{prn:02}.png")
                 plt.close(fig)

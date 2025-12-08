@@ -3,7 +3,18 @@ import matplotlib.ticker as mtick
 import numpy as np
 
 
-def plot_caf(caf, prn, meta, acquisition, *, doppler_span=1000.0, time_span=25e-6):
+def plot_caf(
+    caf,
+    prn,
+    meta,
+    acquisition,
+    *,
+    doppler_span=1000.0,
+    time_span=25e-6,
+    time_center=None,
+    min_snr=None,
+    max_snr=None,
+):
     (a, b) = (meta["max_doppler_bin"], meta["max_time_bin"])
     caf_mean = meta["caf_mean"]
     caf_std = meta["caf_std"]
@@ -18,7 +29,10 @@ def plot_caf(caf, prn, meta, acquisition, *, doppler_span=1000.0, time_span=25e-
     doppler_sel = slice(max(0, a - a_span), a + a_span + 1)
     doppler_axis = doppler_axis[doppler_sel]
     b_span = round(0.5 * time_span * acquisition.sample_rate())
-    time_sel = slice(max(0, b - b_span), b + b_span + 1)
+    b_center = b
+    if time_center is not None:
+        b_center = round(time_center * acquisition.sample_rate())
+    time_sel = slice(max(0, b_center - b_span), b_center + b_span + 1)
     taxis = (np.arange(caf.shape[1]) + meta["sample_offset"])[
         time_sel
     ] / acquisition.sample_rate()
@@ -27,6 +41,8 @@ def plot_caf(caf, prn, meta, acquisition, *, doppler_span=1000.0, time_span=25e-
         aspect="auto",
         interpolation="none",
         extent=[taxis[0], taxis[-1], doppler_axis[0], doppler_axis[-1]],
+        vmin=min_snr,
+        vmax=max_snr,
     )
     ax.get_xaxis().set_visible(False)
     ax.set_ylabel("Doppler (Hz)")
@@ -34,8 +50,16 @@ def plot_caf(caf, prn, meta, acquisition, *, doppler_span=1000.0, time_span=25e-
     ax = fig.add_subplot(gs[0, 1], sharey=ax0)
     ax.get_yaxis().set_visible(False)
     ax.plot((caf[doppler_sel, b] - caf_mean) / caf_std, doppler_axis)
+    if min_snr is not None:
+        ax.set_xlim(left=min_snr)
+    if max_snr is not None:
+        ax.set_xlim(right=max_snr)
     ax = fig.add_subplot(gs[1, 0], sharex=ax0)
     ax.plot(taxis, (caf[a, time_sel] - caf_mean) / caf_std)
+    if min_snr is not None:
+        ax.set_ylim(bottom=min_snr)
+    if max_snr is not None:
+        ax.set_ylim(top=max_snr)
     ax.set_xlabel("Delay (s)")
     ax.xaxis.set_major_formatter(mtick.FormatStrFormatter("%.6f"))
     snr = meta["snr"]
