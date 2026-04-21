@@ -34,6 +34,11 @@ pub struct AcquisitionConfiguration {
     pub coherent_integration_ms: usize,
     /// Number of coherent integrations.
     pub num_noncoherent_integrations: usize,
+    /// Signal frequency offset.
+    ///
+    /// Indicates the frequency offset in Hz, with respect to IQ baseband, of
+    /// the nominal GNSS carrier frequency in the signal data.
+    pub signal_frequency_offset: f64,
     /// Doppler range.
     ///
     /// This is the required Doppler range to cover. The actual Doppler range is
@@ -56,6 +61,7 @@ impl Default for AcquisitionConfiguration {
             sample_rate: 8_000_000,
             coherent_integration_ms: 20,
             num_noncoherent_integrations: 14,
+            signal_frequency_offset: 0.0,
             doppler_range: -10e3..=10e3,
             doppler_oversampling: 2,
             doppler_block_size: 8,
@@ -63,7 +69,7 @@ impl Default for AcquisitionConfiguration {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct Parameters {
     threads_per_block: usize,
     samples_per_ms: usize,
@@ -73,6 +79,7 @@ struct Parameters {
     doppler_block_size: usize,
     num_doppler_blocks: usize,
     first_doppler_bin: isize,
+    signal_frequency_offset: f64,
 }
 
 #[derive(Debug)]
@@ -121,7 +128,18 @@ impl CuFFTAcquisition {
     }
 
     pub fn set_signal(&mut self, signal: &[Complex32]) -> Result<()> {
-        self.compute_signal_fft(signal)?;
+        if self.parameters.signal_frequency_offset != 0.0 {
+            let num_signal_samples = self.parameters.num_signal_samples();
+            let signal = frequency_shift(
+                signal.iter().take(num_signal_samples).copied(),
+                -self.parameters.signal_frequency_offset,
+                self.parameters.samp_rate(),
+            )
+            .collect::<Vec<_>>();
+            self.compute_signal_fft(&signal)?;
+        } else {
+            self.compute_signal_fft(signal)?;
+        }
         Ok(())
     }
 
@@ -369,6 +387,10 @@ impl Parameters {
             configuration.doppler_block_size > 0,
             "the Doppler block size must not be zero"
         );
+        anyhow::ensure!(
+            configuration.signal_frequency_offset.abs() <= 0.5 * configuration.sample_rate as f64,
+            "the signal frequency offset must not exceed the Nyquist frequency range"
+        );
 
         let samples_per_ms = (configuration.sample_rate / 1000).try_into().unwrap();
 
@@ -405,6 +427,7 @@ impl Parameters {
             doppler_block_size: configuration.doppler_block_size,
             num_doppler_blocks,
             first_doppler_bin,
+            signal_frequency_offset: configuration.signal_frequency_offset,
         };
         assert_eq!(parameters.nfft(), nfft);
         Ok(parameters)

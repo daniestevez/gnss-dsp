@@ -1,6 +1,7 @@
 import argparse
 import json
 import pathlib
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,6 +9,9 @@ import sigmf
 
 import gnss_dsp
 from gnss_dsp.plots.acquisition import plot_caf, plot_snrs, plot_dopplers_modulo_1khz
+
+
+GPS_L1_FREQ = 1575.42e6
 
 
 def prns_list(s):
@@ -28,6 +32,13 @@ def parse_args(args=None, simulation=False):
             type=int,
             default=1,
             help="GPS PRN to use for simulated signal [default=%(default)r]",
+        )
+        parser.add_argument(
+            "--frequency-offset",
+            type=float,
+            default=0.0,
+            help="Frequency offset of the simulated signal with respect to "
+            "baseband IQ (Hz) [default=%(default)r]",
         )
         parser.add_argument(
             "--doppler",
@@ -201,8 +212,7 @@ def remove_half_lsb_bias(dataset, samples):
 
 def generate_simulated_signal(args):
     code = gnss_dsp.gps_l1_ca_code(args.signal_prn)
-    carrier_frequency = 1575.42e6
-    doppler_factor = 1 + args.doppler / carrier_frequency
+    doppler_factor = 1 + args.doppler / GPS_L1_FREQ
     code_rate = 1.023e6 * doppler_factor
     symbol_rate = 50 * doppler_factor
     time_offset = (-args.signal_time_offset) % 20e-3
@@ -228,7 +238,12 @@ def generate_simulated_signal(args):
         amplitude
         * modulated_code
         * np.exp(
-            1j * 2 * np.pi * np.arange(num_samples) * args.doppler / args.samp_rate
+            1j
+            * 2
+            * np.pi
+            * np.arange(num_samples)
+            * (args.doppler + args.frequency_offset)
+            / args.samp_rate
         )
         + rng.normal(size=num_samples)
         + 1j * rng.normal(size=num_samples)
@@ -274,7 +289,7 @@ def extract_metadata(
     }
 
 
-def compute_acquisition(signal, samp_rate, sample_offset, args):
+def compute_acquisition(signal, samp_rate, sample_offset, frequency_offset, args):
     coherent_integration_ms = args.coherent_integration * 1000
     if abs(coherent_integration_ms - round(coherent_integration_ms)) > 1e-6:
         raise ValueError(
@@ -285,6 +300,7 @@ def compute_acquisition(signal, samp_rate, sample_offset, args):
         int(samp_rate),
         coherent_integration_ms=coherent_integration_ms,
         num_noncoherent_integrations=args.non_coherent_integrations,
+        signal_frequency_offset=frequency_offset,
         min_doppler=args.min_doppler,
         max_doppler=args.max_doppler,
         doppler_oversampling=args.doppler_oversampling,
@@ -332,9 +348,17 @@ def main(args=None, simulation=False):
     if simulation:
         signal = generate_simulated_signal(args)
         samp_rate = args.samp_rate
+        frequency_offset = args.frequency_offset
     else:
         dataset = sigmf.sigmffile.fromfile(args.file)
         samp_rate = dataset.get_global_field(sigmf.sigmffile.SigMFFile.SAMPLE_RATE_KEY)
+        captures = dataset.get_captures()
+        if not captures:
+            raise RuntimeError("sigmf captures are required to get RF frequency")
+        if len(captures) > 1:
+            print("using first sigmf capture to get RF frequency", file=sys.stderr)
+        center_freq = captures[0][sigmf.sigmffile.SigMFFile.FREQUENCY_KEY]
+        frequency_offset = center_freq - GPS_L1_FREQ
         signal = dataset.read_samples()
         if args.remove_half_lsb_bias:
             remove_half_lsb_bias(dataset, signal)
@@ -346,7 +370,9 @@ def main(args=None, simulation=False):
         args.json_output.parent.mkdir(exist_ok=True, parents=True)
     if args.plots_dir is not None:
         args.plots_dir.mkdir(exist_ok=True, parents=True)
-    metadata = compute_acquisition(signal, samp_rate, sample_offset, args)
+    metadata = compute_acquisition(
+        signal, samp_rate, sample_offset, frequency_offset, args
+    )
 
     if args.plots_dir is not None:
         fig = plot_snrs(metadata)
