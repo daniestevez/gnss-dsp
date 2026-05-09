@@ -358,7 +358,7 @@ def main(args=None, simulation=False):
         if len(captures) > 1:
             print("using first sigmf capture to get RF frequency", file=sys.stderr)
         center_freq = captures[0][sigmf.sigmffile.SigMFFile.FREQUENCY_KEY]
-        frequency_offset = center_freq - GPS_L1_FREQ
+        frequency_offset = GPS_L1_FREQ - center_freq
         signal = dataset.read_samples()
         if args.remove_half_lsb_bias:
             remove_half_lsb_bias(dataset, signal)
